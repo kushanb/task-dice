@@ -268,11 +268,33 @@ Not visual tokens, but the design encodes these rules — screens must match:
 
 ## 9. Open questions (flagged for review)
 
-1. **Tab bar destinations conflict.** The live prototype's tab bar is
-   *Today · Plan · Roll · Inbox*; static screen 01 shows *Today · Plan · Trends · Progress*.
-   The full app has all 6 destinations plus Focus. Proposal: 5 tabs —
-   *Today · Plan · Roll · Trends · Progress* — with Inbox reached via the capture
-   FAB / Today, and Daily Review reached from Today/Trends. **Needs your call.**
+0. **Daily Review entry point.** No launcher for the review is drawn in the
+   handoff. Built as: tapping the "Efficiency today" card on Today pushes the
+   Daily Review as a full route (with a "· review →" affordance on the card).
+   The review is data-driven (sub-scores, points-earned, estimate-vs-actual all
+   from live state), so it populates as tasks complete. Change the entry point
+   if you'd prefer it on Trends or an end-of-day prompt.
+0b. **Trends needs history the app doesn't store.** The efficiency line,
+   heatmap, break-patterns, and accuracy chart all require days/weeks of past
+   data. Built against a seeded `TrendsData.demo()` (in `models/trends.dart`) —
+   representative placeholder history a real backend or on-device day-log would
+   populate. Also relevant: break patterns are shown per-category (Messages /
+   Snack / …), but the live app only tracks total break minutes + a single
+   selected reason per session — a proper per-break log is still needed to make
+   this card live.
+0c. **Progress/game engine is stubbed.** Level, XP, streak, multiplier, and
+   badges are seeded (`GameData.demo()` in `models/game.dart`) — there's no XP
+   accrual, streak tracking, or badge-unlock engine yet. Rewards ARE live:
+   Claim marks a reward claimed and Add appends one, both through `AppState`.
+   A real build needs an XP/streak/badge engine driven by completions.
+1. **Tab bar destinations — RESOLVED as built.** The live prototype's tab bar
+   is *Today · Plan · Roll · Inbox*; static screen 01 shows
+   *Today · Plan · Trends · Progress*. Built as 5 tabs —
+   *Today · Plan · Roll · Trends · Progress*. Focus mode is a non-tab route
+   (entered by starting a task). Daily Review is pushed from the Today
+   efficiency card. **Inbox is pushed from an "Inbox N" pill in the Today
+   header** (the capture FAB writes to it; this pill reads it). Revisit if you
+   want Inbox promoted to a tab.
 2. **Fonts at runtime vs bundled.** Starting with `google_fonts` (runtime fetch,
    cached). Swap to bundled TTFs before any offline-first release.
 3. **Focus-state styling for inputs** isn't shown in the design. Theme uses a

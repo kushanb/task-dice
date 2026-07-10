@@ -4,7 +4,9 @@ import 'dart:math';
 import 'package:flutter/widgets.dart';
 
 import '../logic/scoring.dart';
+import '../models/game.dart';
 import '../models/task.dart';
+import '../models/trends.dart';
 
 enum BreakType {
   rest('Break'),
@@ -37,7 +39,14 @@ class AppState extends ChangeNotifier {
   final List<Task> tasks = [];
   final List<InboxItem> inbox = [];
 
+  /// Seeded weekly history behind the Trends screen (see [TrendsData]).
+  final TrendsData trends = TrendsData.demo();
+
+  /// Gamification state behind the Progress screen (see [GameData]).
+  final GameData game = GameData.demo();
+
   int points = 0;
+  int pointsEarnedToday = 0;
 
   /// Minutes banked from earlier sessions today (before the current one).
   int dayFocusBaseMin = 0;
@@ -157,6 +166,7 @@ class AppState extends ChangeNotifier {
     dayBreakBaseMin += breakMin;
     usedBreakBudgetBaseMin += breakMin;
     points += pts;
+    pointsEarnedToday += pts;
     final newScore = efficiencyScore;
 
     completedInfo = CompletedInfo(
@@ -265,6 +275,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- Rewards ----
+
+  void claimReward(Reward reward) {
+    reward.claimed = true;
+    notifyListeners();
+  }
+
+  void addReward(String title, int targetPoints) {
+    final v = title.trim();
+    if (v.isEmpty) return;
+    game.rewards.add(Reward(
+      title: v,
+      detail: '0 / $targetPoints pts',
+      fraction: 0,
+    ));
+    notifyListeners();
+  }
+
   void addToInbox(String text) {
     final v = text.trim();
     if (v.isEmpty) return;
@@ -364,6 +392,7 @@ class AppState extends ChangeNotifier {
           capturedAt: DateTime.now().subtract(const Duration(hours: 4))),
     ]);
     points = 231;
+    pointsEarnedToday = 181;
     dayFocusBaseMin = 96;
     dayBreakBaseMin = 24;
     usedBreakBudgetBaseMin = 24;

@@ -168,4 +168,105 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('IN FOCUS'), findsOneWidget);
   });
+
+  testWidgets('Tapping the efficiency card opens the data-driven Day review',
+      (tester) async {
+    tester.view.physicalSize = const Size(1170, 3200);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const TaskDiceApp());
+    await tester.pump();
+
+    await tester.tap(find.text('Efficiency today'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Day review'), findsOneWidget); // app bar title
+    expect(find.text('Focus ratio'), findsOneWidget);
+    expect(find.text('Completion'), findsOneWidget);
+    expect(find.text('Estimates'), findsOneWidget);
+    expect(find.text('ESTIMATE VS ACTUAL'), findsOneWidget);
+    // Seeded done tasks with actuals appear as est-vs-actual rows.
+    expect(find.text('41m / 25m'), findsOneWidget); // Review PR #142 (over → red)
+    expect(find.text('+181'), findsOneWidget); // points earned today
+  });
+
+  testWidgets('Trends renders its four analytics cards', (tester) async {
+    tester.view.physicalSize = const Size(1170, 3200);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const TaskDiceApp());
+    await tester.pump();
+
+    await tester.tap(find.text('Trends'));
+    await tester.pump();
+
+    expect(find.text('Weekly efficiency'), findsOneWidget);
+    expect(find.textContaining('vs last wk'), findsOneWidget);
+    expect(find.text('Focus heatmap'), findsOneWidget);
+    expect(find.textContaining('9–11am'), findsOneWidget);
+    expect(find.text('Break patterns · this week'), findsOneWidget);
+    expect(find.text('Interrupted'), findsOneWidget);
+    expect(find.text('Estimate accuracy'), findsOneWidget);
+    expect(find.text('64%'), findsOneWidget);
+  });
+
+  testWidgets('Progress shows level, badges, rewards; Claim works',
+      (tester) async {
+    tester.view.physicalSize = const Size(1170, 3600);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const TaskDiceApp());
+    await tester.pump();
+
+    await tester.tap(find.text('Progress'));
+    await tester.pump();
+
+    expect(find.text('Level 7 · Flow Apprentice'), findsOneWidget);
+    expect(find.text('RECENT BADGES'), findsOneWidget);
+    expect(find.text('Sharp-shooter'), findsOneWidget);
+    expect(find.text('MY REWARDS'), findsOneWidget);
+    expect(find.text('Watch one episode'), findsOneWidget);
+    expect(find.text('+ Add a reward'), findsOneWidget);
+
+    // Claim the reached reward → it flips to "Claimed ✓".
+    await tester.tap(find.text('Claim 🎉'));
+    await tester.pump();
+    expect(find.text('Claimed ✓'), findsOneWidget);
+    expect(find.text('Reward claimed 🎉'), findsOneWidget); // toast
+
+    await tester.pump(const Duration(seconds: 3)); // drain toast
+  });
+
+  testWidgets('Inbox lists captured items; triage moves and deletes',
+      (tester) async {
+    tester.view.physicalSize = const Size(1170, 2600);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const TaskDiceApp());
+    await tester.pump();
+
+    // Open the inbox from the Today header pill.
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('thoughts captured'), findsOneWidget);
+    expect(find.text('Ask Sam about the Friday demo'), findsOneWidget);
+    expect(find.textContaining('mid-focus'), findsOneWidget); // seeded mid-focus item
+
+    // → Today promotes an item off the inbox and into the task list.
+    await tester.tap(find.text('→ Today').first);
+    await tester.pump();
+    expect(find.text('Moved to today'), findsOneWidget); // toast
+
+    // Delete removes another.
+    await tester.tap(find.text('Delete').first);
+    await tester.pump();
+    expect(find.text('Ask Sam about the Friday demo'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 3)); // drain toast
+  });
 }

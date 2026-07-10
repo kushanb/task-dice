@@ -19,6 +19,22 @@ String fmtThousands(int n) {
   return buf.toString();
 }
 
+/// "captured 14:38 · mid-focus", "captured yesterday", "captured Wed".
+String capturedLabel(DateTime at, {bool midFocus = false}) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(at.year, at.month, at.day);
+  final diff = today.difference(day).inDays;
+  final hhmm =
+      '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+  final base = switch (diff) {
+    0 => 'captured $hhmm',
+    1 => 'captured yesterday',
+    _ => 'captured ${weekdayShort(at)}',
+  };
+  return midFocus ? '$base · mid-focus' : base;
+}
+
 /// "Wed" — short weekday, used in the Plan subtitle.
 String weekdayShort(DateTime now) {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];

@@ -42,9 +42,30 @@ const estimateBonusPoints = 20;
 bool earnsEstimateBonus({required int actualMin, required int estMin}) =>
     (actualMin - estMin).abs() / estMin <= 0.15;
 
-/// Efficiency score 0–100 = 40·focusRatio + 35·completionRate + 25·estimateAccuracy.
-int computeEfficiency(List<Task> tasks, int focusMin, int breakMin) {
-  final focusRatio = focusMin + breakMin > 0 ? focusMin / (focusMin + breakMin) : 1.0;
+/// The three weighted components of the efficiency score. Displayed on the
+/// daily review as "33/40" etc.; the ring value is their sum.
+class EfficiencyBreakdown {
+  const EfficiencyBreakdown({
+    required this.focus,
+    required this.completion,
+    required this.estimate,
+  });
+
+  final int focus; // 0..40
+  final int completion; // 0..35
+  final int estimate; // 0..25
+
+  int get total => focus + completion + estimate;
+
+  static const focusMax = 40;
+  static const completionMax = 35;
+  static const estimateMax = 25;
+}
+
+EfficiencyBreakdown efficiencyBreakdown(
+    List<Task> tasks, int focusMin, int breakMin) {
+  final focusRatio =
+      focusMin + breakMin > 0 ? focusMin / (focusMin + breakMin) : 1.0;
   final done = tasks.where((t) => t.isDone).toList();
   final completionRate = tasks.isEmpty ? 0.0 : done.length / tasks.length;
   final accuracies = done
@@ -54,5 +75,18 @@ int computeEfficiency(List<Task> tasks, int focusMin, int breakMin) {
   final estimateAccuracy = accuracies.isEmpty
       ? 0.0
       : accuracies.reduce((a, b) => a + b) / accuracies.length;
-  return (40 * focusRatio + 35 * completionRate + 25 * estimateAccuracy).round();
+  return EfficiencyBreakdown(
+    focus: (EfficiencyBreakdown.focusMax * focusRatio).round(),
+    completion: (EfficiencyBreakdown.completionMax * completionRate).round(),
+    estimate: (EfficiencyBreakdown.estimateMax * estimateAccuracy).round(),
+  );
 }
+
+/// Efficiency score 0–100 = 40·focusRatio + 35·completionRate + 25·estimateAccuracy.
+int computeEfficiency(List<Task> tasks, int focusMin, int breakMin) =>
+    efficiencyBreakdown(tasks, focusMin, breakMin).total;
+
+/// Estimate is "over" (shown red on the review) when actual exceeds it by more
+/// than the 15% bonus threshold; at or under reads green.
+bool isOverEstimate({required int actualMin, required int estMin}) =>
+    actualMin > estMin * 1.15;

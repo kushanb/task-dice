@@ -3,9 +3,12 @@ import 'package:flutter/widgets.dart';
 import '../logic/formats.dart';
 import '../state/app_state.dart';
 import '../theme/app_tokens.dart';
+import 'daily_review_screen.dart';
+import 'inbox_screen.dart';
 import '../widgets/completed_card.dart';
 import '../widgets/efficiency_ring.dart';
 import '../widgets/now_tracking_card.dart';
+import '../widgets/press_scale.dart';
 import '../widgets/roll_cta.dart';
 import '../widgets/task_card.dart';
 
@@ -26,7 +29,7 @@ class TodayScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(
           AppSpacing.s20, AppSpacing.s12, AppSpacing.s20, AppSpacing.scrollBottom),
       children: [
-        _Header(points: state.points),
+        _Header(state: state),
         const SizedBox(height: AppSpacing.s16),
         if (state.completedInfo != null) ...[
           CompletedCard(info: state.completedInfo!),
@@ -61,9 +64,9 @@ class TodayScreen extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.points});
+  const _Header({required this.state});
 
-  final int points;
+  final AppState state;
 
   @override
   Widget build(BuildContext context) {
@@ -81,15 +84,54 @@ class _Header extends StatelessWidget {
             ],
           ),
         ),
+        _InboxButton(count: state.inbox.length, state: state),
+        const SizedBox(width: AppSpacing.s14),
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(fmtThousands(points),
+            Text(fmtThousands(state.points),
                 style: AppText.statValue.copyWith(color: AppColors.green)),
             Text('points', style: AppText.caption.copyWith(fontSize: 11)),
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Inbox entry point: a small pill with the captured count → pushes Inbox.
+class _InboxButton extends StatelessWidget {
+  const _InboxButton({required this.count, required this.state});
+
+  final int count;
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressScale(
+      onTap: () => InboxScreen.open(context, state),
+      scale: 0.95,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.s10, vertical: AppSpacing.s6),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(AppRadii.rChip),
+        ),
+        child: Row(
+          children: [
+            Text('Inbox',
+                style: AppText.chipBold
+                    .copyWith(fontSize: 12, color: AppColors.textSecondary)),
+            if (count > 0) ...[
+              const SizedBox(width: AppSpacing.s6),
+              Text('$count',
+                  style: AppText.monoCaption
+                      .copyWith(fontSize: 11, color: AppColors.green)),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -101,25 +143,39 @@ class _EfficiencyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.s18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.borderHairline),
-        borderRadius: BorderRadius.circular(AppRadii.rCardHero),
-      ),
-      child: Row(
-        children: [
-          EfficiencyRing(score: state.efficiencyScore),
-          const SizedBox(width: AppSpacing.s18),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Efficiency today',
-                    style: AppText.taskTitle
-                        .copyWith(fontSize: 13, color: AppColors.textSecondary)),
-                const SizedBox(height: AppSpacing.s8),
+    return PressScale(
+      onTap: () => DailyReviewScreen.open(context, state),
+      scale: 0.98,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.s18),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          border: Border.all(color: AppColors.borderHairline),
+          borderRadius: BorderRadius.circular(AppRadii.rCardHero),
+        ),
+        child: Row(
+          children: [
+            EfficiencyRing(score: state.efficiencyScore),
+            const SizedBox(width: AppSpacing.s18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text('Efficiency today',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.taskTitle.copyWith(
+                                fontSize: 13, color: AppColors.textSecondary)),
+                      ),
+                      const SizedBox(width: AppSpacing.s6),
+                      Text('· review →',
+                          style: AppText.caption.copyWith(fontSize: 11)),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.s8),
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
@@ -140,10 +196,11 @@ class _EfficiencyCard extends StatelessWidget {
                     ],
                   ),
                 ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

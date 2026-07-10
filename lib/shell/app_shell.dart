@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../screens/focus_screen.dart';
 import '../screens/plan_screen.dart';
+import '../screens/progress_screen.dart';
 import '../screens/roll_screen.dart';
 import '../screens/today_screen.dart';
+import '../screens/trends_screen.dart';
 import '../state/app_state.dart';
-import '../theme/app_tokens.dart';
 import '../widgets/app_tab_bar.dart';
 import '../widgets/capture_fab.dart';
 import '../widgets/capture_overlay.dart';
@@ -51,8 +52,8 @@ class _AppShellState extends State<AppShell> {
               RollScreen(
                 onStart: () => setState(() => _index = _focusIndex),
               ),
-              const _ComingSoon(title: 'Trends'),
-              const _ComingSoon(title: 'Progress'),
+              const TrendsScreen(),
+              const ProgressScreen(),
               // Focus mode lives outside the tab row; reached by starting a task.
               FocusScreen(onDone: () => setState(() => _index = 0)),
             ],
@@ -67,27 +68,6 @@ class _AppShellState extends State<AppShell> {
           index: _index,
           onSelect: (i) => setState(() => _index = i),
         ),
-      ),
-    );
-  }
-}
-
-class _ComingSoon extends StatelessWidget {
-  const _ComingSoon({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(title, style: AppText.pageTitle),
-          const SizedBox(height: AppSpacing.s8),
-          Text('Coming in a later step',
-              style: AppText.caption),
-        ],
       ),
     );
   }
