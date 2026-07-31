@@ -36,6 +36,29 @@ Other web-specific pieces:
   fetched from the Google Fonts CDN, so type is correct offline.
 - `tool/generate_icons.py` — regenerates the icon set from the in-app dice mark.
 
+### Deploying to Vercel
+
+`vercel.json` builds the app on Vercel and serves `build/web`. Nothing needs
+configuring in the dashboard — import the repo and deploy; the framework preset
+should stay "Other".
+
+Vercel's build image has no Flutter, so `tool/vercel_build.sh` installs a pinned
+SDK first. It caches both the SDK and the pub packages under `.vercel/cache`, so
+only the first deploy pays for the download. When upgrading Flutter, bump
+`FLUTTER_VERSION` in that script to match the revision in `.metadata`.
+
+Two details in `vercel.json` are load-bearing:
+
+- **Everything is served `must-revalidate`.** Flutter's web output has no
+  content hashes in its filenames — `main.dart.js`, `assets/*` and `canvaskit/*`
+  keep the same URLs from build to build — so any long-lived `Cache-Control`
+  would hand returning visitors the previous deploy's code. `web/sw.js` is the
+  real cache; HTTP only has to revalidate, which is cheap (304s). `sw.js` itself
+  is additionally `no-cache`, since it decides when every other file is replaced.
+- **The catch-all rewrite to `/index.html`** only fires for paths that do not
+  exist on disk, since Vercel matches real files first. It is what stops a
+  refresh or a deep link from 404ing.
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.

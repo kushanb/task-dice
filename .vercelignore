@@ -1,0 +1,19 @@
+# Keeps `vercel` CLI deploys from uploading things the web build never reads.
+# (Git-integration deploys use the repository, where .gitignore already covers
+# the generated directories.)
+
+build/
+.dart_tool/
+.pub-cache/
+
+# Native platform shells — the Vercel build only targets web.
+android/
+ios/
+macos/
+windows/
+linux/
+
+.idea/
+*.iml
+.DS_Store
+design/
