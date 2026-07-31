@@ -1,46 +1,255 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
+    Placeholder for the base href, replaced by `flutter build web --base-href`.
+    It must start and end with a slash. Everything else on this page — the
+    manifest, the icons, the service worker — is registered relative to it, so
+    the app works unchanged under a sub-path.
   -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <!-- Deliberately no `viewport-fit=cover`: Flutter's web engine reports
+       ViewPadding.zero and never reads the CSS safe-area insets, so SafeArea
+       cannot keep content clear of a notch or home indicator. Letting the
+       browser confine the layout viewport to the safe area is what keeps the
+       header and tab bar reachable on iPhone. -->
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Roll for what to work on, then track the focus behind it.">
 
-  <!-- iOS meta tags & icons -->
+  <!-- TaskDice is a single fixed dark theme; see lib/theme/app_theme.dart. -->
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#101216">
+
+  <!-- Installed / standalone behaviour -->
   <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <!-- "black", not "black-translucent", for the same reason as the viewport
+       above: translucent would paint the app under the status bar with nothing
+       able to inset it. -->
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="taskdice">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <meta name="apple-mobile-web-app-title" content="TaskDice">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="favicon-96.png">
 
-  <title>taskdice</title>
+  <title>TaskDice</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    :root {
+      /* Mirrors AppColors in lib/theme/app_tokens.dart. */
+      --background: #101216;
+      --surface: #181B21;
+      --surface-raised: #20242C;
+      --green: #35D07F;
+      --text-primary: #EDEFF2;
+      --text-tertiary: #8A919E;
+      --border-hairline: rgba(255, 255, 255, .12);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: var(--background);
+      color: var(--text-primary);
+      /* Stops the rubber-band scroll that makes an installed PWA feel like a
+         web page rather than an app. */
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+
+    /* Boot splash: holds the dark background and the dice mark until Flutter
+       paints its first frame, instead of a white flash. */
+    #boot {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--background);
+      z-index: 10;
+      transition: opacity .2s ease-out;
+    }
+
+    #boot.boot--done {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #boot svg {
+      width: 96px;
+      height: 96px;
+      animation: boot-breathe 1.8s ease-in-out infinite;
+    }
+
+    @keyframes boot-breathe {
+      0%, 100% { opacity: .55; transform: scale(.97); }
+      50%      { opacity: 1;   transform: scale(1); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #boot svg { animation: none; opacity: 1; }
+    }
+
+    /* Update prompt, shown when a new service worker is waiting. */
+    #update {
+      position: fixed;
+      left: 50%;
+      bottom: calc(24px + env(safe-area-inset-bottom));
+      transform: translate(-50%, 12px);
+      display: none;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 12px 12px 16px;
+      border-radius: 14px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border-hairline);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+      font-size: 13.5px;
+      opacity: 0;
+      transition: opacity .2s ease-out, transform .2s ease-out;
+      z-index: 20;
+    }
+
+    #update.update--visible {
+      display: flex;
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    #update button {
+      font: inherit;
+      font-weight: 700;
+      color: #0B2417;
+      background: var(--green);
+      border: 0;
+      border-radius: 9px;
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+
+    noscript {
+      display: block;
+      padding: 32px;
+      text-align: center;
+      color: var(--text-tertiary);
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <div id="boot">
+    <!-- The Roll screen's die (lib/widgets/dice_tile.dart), inlined so the
+         splash needs no extra request. -->
+    <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-label="TaskDice">
+      <rect x=".5" y=".5" width="119" height="119" rx="28"
+            fill="#181B21" stroke="rgba(255,255,255,.12)"/>
+      <g fill="#35D07F">
+        <circle cx="40" cy="40" r="7"/>
+        <circle cx="80" cy="40" r="7"/>
+        <circle cx="60" cy="60" r="7"/>
+        <circle cx="40" cy="80" r="7"/>
+        <circle cx="80" cy="80" r="7"/>
+      </g>
+    </svg>
+  </div>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <div id="update" role="status">
+    <span>A new version is ready.</span>
+    <button type="button" id="update-reload">Reload</button>
+  </div>
+
+  <noscript>TaskDice needs JavaScript enabled to run.</noscript>
+
+  <script>
+    (function () {
+      // Drop the splash as soon as Flutter has something on screen.
+      window.addEventListener('flutter-first-frame', function () {
+        var boot = document.getElementById('boot');
+        if (boot) {
+          boot.classList.add('boot--done');
+          boot.addEventListener('transitionend', function () { boot.remove(); });
+        }
+        warmRuntimeCache();
+      });
+
+      // The engine payload is requested before the worker controls this page,
+      // so on a first visit it never passes through the fetch handler. Hand the
+      // worker the list of what was actually loaded — chiefly the one CanvasKit
+      // variant this browser picked — so going offline immediately still works.
+      function warmRuntimeCache() {
+        if (!('serviceWorker' in navigator) || !window.performance) return;
+        navigator.serviceWorker.ready.then(function (registration) {
+          var worker = registration.active;
+          if (!worker) return;
+          var urls = performance.getEntriesByType('resource')
+            .filter(function (entry) { return entry.initiatorType !== 'beacon'; })
+            .map(function (entry) { return entry.name; });
+          if (urls.length) worker.postMessage({ type: 'CACHE_URLS', urls: urls });
+        }).catch(function () { /* no worker — nothing to warm */ });
+      }
+
+      if (!('serviceWorker' in navigator)) return;
+
+      var accepted = false;
+
+      // Only reload for an update the user actually accepted. `controllerchange`
+      // also fires on the very first install, where a reload would be pointless.
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (!accepted) return;
+        window.location.reload();
+      });
+
+      function promptUpdate(worker) {
+        var prompt = document.getElementById('update');
+        var reload = document.getElementById('update-reload');
+        if (!prompt || !reload) return;
+        prompt.classList.add('update--visible');
+        reload.addEventListener('click', function () {
+          accepted = true;
+          reload.disabled = true;
+          worker.postMessage({ type: 'SKIP_WAITING' });
+        });
+      }
+
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').then(function (registration) {
+          // A worker already waiting from a previous visit.
+          if (registration.waiting && navigator.serviceWorker.controller) {
+            promptUpdate(registration.waiting);
+          }
+
+          registration.addEventListener('updatefound', function () {
+            var installing = registration.installing;
+            if (!installing) return;
+            installing.addEventListener('statechange', function () {
+              // With no controller this is the first install, which needs no
+              // prompt — it is already the version being served.
+              if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                promptUpdate(installing);
+              }
+            });
+          });
+
+          // An installed PWA can stay open for days, so check for a new build
+          // whenever it comes back to the foreground.
+          document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible') {
+              registration.update().catch(function () { /* offline — try later */ });
+            }
+          });
+        }).catch(function (error) {
+          console.warn('Service worker registration failed:', error);
+        });
+      });
+    })();
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
