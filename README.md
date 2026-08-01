@@ -151,6 +151,7 @@ users/{uid}                points, day counters, dayKey
 users/{uid}/tasks/{id}     title, tag, priority, estimate, status, actual
 users/{uid}/inbox/{id}     captured text, timestamp, mid-focus flag
 users/{uid}/rewards/{id}   title, progress, claimed
+users/{uid}/session/current the focus session in progress
 ```
 
 Writes are fire-and-forget against Firestore's local cache, so edits apply
@@ -158,8 +159,25 @@ instantly and queue when offline. Daily figures are stamped with `dayKey`; open
 the app on a new day and they reset while the running `points` total carries
 over.
 
-Not yet persisted: the live focus session (a reload mid-task loses the running
-timer), and the Trends/Progress history, which is still the seeded demo data.
+### The focus timer
+
+The session document stores *instants*, never a running count:
+
+```
+activeTaskId, accumMs, runningSince, breakAccumMs, breakSince
+```
+
+Elapsed time is recomputed from the clock every time it is displayed
+(`elapsed = accum + (now − runningSince)`), so the seconds that pass while the
+tab is closed still count. That is what makes the timer survive a refresh and
+show the same reading on a second device.
+
+It is written on transitions only — start, pause, resume, break, complete — and
+never on the one-second display tick, which would otherwise be a Firestore write
+per second. `session/current` is its own document so the cross-device listener
+wakes on session changes rather than on every counter update.
+
+Not yet persisted: the Trends/Progress history, which is still seeded demo data.
 
 ## Getting Started
 

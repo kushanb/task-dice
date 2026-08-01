@@ -85,6 +85,9 @@ class _SignedInState extends State<_SignedIn> {
   Future<void> _load() async {
     final data = await _store.load();
     _state.applyStored(data);
+    // Only once the task list is in place, or an incoming session could name a
+    // task this device has not loaded yet.
+    _state.startSessionSync();
   }
 
   @override

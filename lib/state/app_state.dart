@@ -85,27 +85,50 @@ class AppState extends ChangeNotifier {
 
   Timer? _ticker;
 
+  /// Live session updates from other devices; null when there is no store.
+  StreamSubscription<StoredSession?>? _sessionSub;
+
   // ---- Derived state ----
 
-  Task? get activeTask =>
-      activeTaskId == null ? null : tasks.firstWhere((t) => t.id == activeTaskId);
+  /// Null-safe on purpose: a restored session can name a task that was deleted
+  /// on another device, and firstWhere would throw building the Focus screen.
+  Task? get activeTask {
+    final id = activeTaskId;
+    if (id == null) return null;
+    for (final task in tasks) {
+      if (task.id == id) return task;
+    }
+    return null;
+  }
 
   bool get isTracking => activeTaskId != null;
   bool get isRunning => runningSince != null;
   bool get onBreak => breakSince != null;
 
-  Duration get elapsed =>
-      _accum +
-      (runningSince != null ? DateTime.now().difference(runningSince!) : Duration.zero);
+  Duration get elapsed => elapsedAt(DateTime.now());
 
-  Duration get sessionBreak =>
-      _breakAccum +
-      (breakSince != null ? DateTime.now().difference(breakSince!) : Duration.zero);
+  Duration get sessionBreak => sessionBreakAt(DateTime.now());
 
   Duration get sessionFocus {
-    final f = elapsed - sessionBreak;
-    return f.isNegative ? Duration.zero : f;
+    // One clock read for both halves. Taking `now` twice makes the subtraction
+    // lose the microseconds between the reads, which is enough to round the
+    // displayed minute down by one.
+    final now = DateTime.now();
+    final focus = elapsedAt(now) - sessionBreakAt(now);
+    return focus.isNegative ? Duration.zero : focus;
   }
+
+  /// Total task time as of [now] — banked time plus the run in progress.
+  @visibleForTesting
+  Duration elapsedAt(DateTime now) =>
+      _accum +
+      (runningSince != null ? now.difference(runningSince!) : Duration.zero);
+
+  /// Break time as of [now], on the same basis as [elapsedAt].
+  @visibleForTesting
+  Duration sessionBreakAt(DateTime now) =>
+      _breakAccum +
+      (breakSince != null ? now.difference(breakSince!) : Duration.zero);
 
   int get efficiencyScore =>
       computeEfficiency(tasks, dayFocusBaseMin, dayBreakBaseMin);
@@ -139,6 +162,7 @@ class AppState extends ChangeNotifier {
       }
     });
     _startTicker();
+    _persistSession();
     notifyListeners();
   }
 
@@ -154,6 +178,7 @@ class AppState extends ChangeNotifier {
     } else if (isTracking) {
       runningSince = DateTime.now();
     }
+    _persistSession();
     notifyListeners();
   }
 
@@ -188,17 +213,11 @@ class AppState extends ChangeNotifier {
           '${focusMin}m focused, ${breakMin}m on break.',
     );
 
-    activeTaskId = null;
-    _accum = Duration.zero;
-    runningSince = null;
-    _breakAccum = Duration.zero;
-    breakSince = null;
-    energyPromptVisible = false;
-    _energyTimer?.cancel();
-    _stopTicker();
+    _resetSession();
 
     _write((store) => store.saveTask(task));
     _write((store) => store.saveCounters(_counters));
+    _write((store) => store.clearSession());
 
     notifyListeners();
   }
@@ -214,17 +233,20 @@ class AppState extends ChangeNotifier {
 
   void setBreakType(BreakType type) {
     breakType = type;
+    _persistSession();
     notifyListeners();
   }
 
   void toggleBreakReason(String reason) {
     breakReason = breakReason == reason ? null : reason;
+    _persistSession();
     notifyListeners();
   }
 
   void startBreak() {
     if (breakSince != null) return;
     breakSince = DateTime.now();
+    _persistSession();
     notifyListeners();
   }
 
@@ -232,11 +254,13 @@ class AppState extends ChangeNotifier {
     if (breakSince == null) return;
     _breakAccum += DateTime.now().difference(breakSince!);
     breakSince = null;
+    _persistSession();
     notifyListeners();
   }
 
   void addBreakMinutes(int minutes) {
     _breakAccum += Duration(minutes: minutes);
+    _persistSession();
     notifyListeners();
   }
 
@@ -280,14 +304,8 @@ class AppState extends ChangeNotifier {
 
   void removeTask(Task task) {
     if (activeTaskId == task.id) {
-      activeTaskId = null;
-      _accum = Duration.zero;
-      runningSince = null;
-      _breakAccum = Duration.zero;
-      breakSince = null;
-      energyPromptVisible = false;
-      _energyTimer?.cancel();
-      _stopTicker();
+      _resetSession();
+      _write((store) => store.clearSession());
     }
     tasks.remove(task);
     _write((store) => store.deleteTask(task));
@@ -366,7 +384,90 @@ class AppState extends ChangeNotifier {
     usedBreakBudgetBaseMin = data.counters.usedBreakBudgetBaseMin;
     breakBudgetMin = data.counters.breakBudgetMin;
 
+    _restoreSession(data.session);
+
     notifyListeners();
+  }
+
+  /// Starts mirroring session changes from other devices.
+  ///
+  /// Separate from [applyStored] so the initial load settles first: subscribing
+  /// mid-load could apply a session before its task list exists.
+  void startSessionSync() {
+    final store = _store;
+    if (store == null) return;
+    _sessionSub?.cancel();
+    _sessionSub = store.watchSession().listen(
+      (session) {
+        _restoreSession(session);
+        notifyListeners();
+      },
+      onError: (Object error) {
+        lastWriteError = error;
+        debugPrint('TaskDice: session sync failed — $error');
+      },
+    );
+  }
+
+  /// Adopts a stored session, from the initial load or from another device.
+  ///
+  /// Elapsed time needs no adjustment: [elapsed] and [sessionBreak] derive it
+  /// from [runningSince]/[breakSince] against the current clock, so time that
+  /// passed while this device was closed is already accounted for.
+  void _restoreSession(StoredSession? session) {
+    if (session == null) {
+      if (activeTaskId != null) _resetSession();
+      return;
+    }
+
+    // A session for a task this device does not have is not restorable —
+    // the task was deleted elsewhere, or has not synced yet.
+    final exists = tasks.any((t) => t.id == session.activeTaskId);
+    if (!exists) {
+      if (activeTaskId != null) _resetSession();
+      return;
+    }
+
+    activeTaskId = session.activeTaskId;
+    _accum = session.accum;
+    runningSince = session.runningSince;
+    _breakAccum = session.breakAccum;
+    breakSince = session.breakSince;
+    breakType = BreakType.values
+            .where((t) => t.name == session.breakType)
+            .firstOrNull ??
+        BreakType.rest;
+    breakReason = session.breakReason;
+    _startTicker();
+  }
+
+  /// Clears the in-memory session. Does not touch the store — callers decide
+  /// whether this is a local end (write a clear) or an echo of one.
+  void _resetSession() {
+    activeTaskId = null;
+    _accum = Duration.zero;
+    runningSince = null;
+    _breakAccum = Duration.zero;
+    breakSince = null;
+    energyPromptVisible = false;
+    _energyTimer?.cancel();
+    _stopTicker();
+  }
+
+  /// Mirrors the live session out. Called on transitions only — never from the
+  /// display ticker, which would mean a Firestore write every second.
+  void _persistSession() {
+    final id = activeTaskId;
+    if (id == null) return;
+    _write((store) => store.saveSession(StoredSession(
+          activeTaskId: id,
+          accum: _accum,
+          runningSince: runningSince,
+          breakAccum: _breakAccum,
+          breakSince: breakSince,
+          breakType: breakType.name,
+          breakReason: breakReason,
+        )));
   }
 
   StoredCounters get _counters => StoredCounters(
@@ -406,6 +507,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _energyTimer?.cancel();
+    _sessionSub?.cancel();
     _stopTicker();
     super.dispose();
   }

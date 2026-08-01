@@ -13,6 +13,10 @@ import 'task_store.dart';
 ///     users/{uid}/tasks/{id}
 ///     users/{uid}/inbox/{id}
 ///     users/{uid}/rewards/{id}
+///     users/{uid}/session/current  the focus session in progress
+///
+/// The session is its own document rather than a field on the user doc so that
+/// [watchSession] only wakes on session changes, not on every counter write.
 class FirestoreTaskStore implements TaskStore {
   FirestoreTaskStore({required this.uid, FirebaseFirestore? firestore})
       : _db = firestore ?? FirebaseFirestore.instance;
@@ -28,6 +32,9 @@ class FirestoreTaskStore implements TaskStore {
   CollectionReference<Map<String, dynamic>> get _rewards =>
       _user.collection('rewards');
 
+  DocumentReference<Map<String, dynamic>> get _session =>
+      _user.collection('session').doc('current');
+
   @override
   Future<StoredData> load() async {
     final results = await Future.wait([
@@ -35,12 +42,14 @@ class FirestoreTaskStore implements TaskStore {
       _tasks.get(),
       _inbox.get(),
       _rewards.get(),
+      _session.get(),
     ]);
 
     final userDoc = results[0] as DocumentSnapshot<Map<String, dynamic>>;
     final taskDocs = results[1] as QuerySnapshot<Map<String, dynamic>>;
     final inboxDocs = results[2] as QuerySnapshot<Map<String, dynamic>>;
     final rewardDocs = results[3] as QuerySnapshot<Map<String, dynamic>>;
+    final sessionDoc = results[4] as DocumentSnapshot<Map<String, dynamic>>;
 
     final tasks = taskDocs.docs.map((d) => _taskFrom(d.data())).toList()
       ..sort((a, b) => a.id.compareTo(b.id));
@@ -54,6 +63,7 @@ class FirestoreTaskStore implements TaskStore {
       inbox: inbox,
       rewards: rewardDocs.docs.map((d) => _rewardFrom(d.id, d.data())).toList(),
       counters: _countersFrom(userDoc.data()),
+      session: _sessionFrom(sessionDoc.data()),
     );
   }
 
@@ -88,6 +98,23 @@ class FirestoreTaskStore implements TaskStore {
         'dayKey': todayKey(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+
+  @override
+  Future<void> saveSession(StoredSession session) =>
+      _session.set(_sessionTo(session));
+
+  @override
+  Future<void> clearSession() => _session.delete();
+
+  @override
+  Stream<StoredSession?> watchSession() => _session
+      .snapshots()
+      // Skip the echo of our own not-yet-acknowledged write: this device is
+      // already in that state, and re-applying it would reset runningSince
+      // mid-tick. The server's confirming snapshot arrives right after with
+      // hasPendingWrites false.
+      .where((doc) => !doc.metadata.hasPendingWrites)
+      .map((doc) => _sessionFrom(doc.data()));
 }
 
 /// Turns a Firestore failure into something that points at the fix.
@@ -184,6 +211,41 @@ Reward _rewardFrom(String id, Map<String, dynamic> data) => Reward(
       reached: data['reached'] as bool? ?? false,
       claimed: data['claimed'] as bool? ?? false,
     );
+
+Map<String, dynamic> _sessionTo(StoredSession session) => {
+      'activeTaskId': session.activeTaskId,
+      // Milliseconds rather than a Duration: Firestore has no duration type,
+      // and an int survives the round trip on every platform unambiguously.
+      'accumMs': session.accum.inMilliseconds,
+      'runningSince': _tsOrNull(session.runningSince),
+      'breakAccumMs': session.breakAccum.inMilliseconds,
+      'breakSince': _tsOrNull(session.breakSince),
+      'breakType': session.breakType,
+      'breakReason': session.breakReason,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+/// Null when the document is missing, empty, or predates [activeTaskId] —
+/// all of which mean "nothing is tracking".
+StoredSession? _sessionFrom(Map<String, dynamic>? data) {
+  if (data == null) return null;
+  final activeTaskId = (data['activeTaskId'] as num?)?.toInt();
+  if (activeTaskId == null) return null;
+
+  return StoredSession(
+    activeTaskId: activeTaskId,
+    accum: Duration(milliseconds: (data['accumMs'] as num?)?.toInt() ?? 0),
+    runningSince: (data['runningSince'] as Timestamp?)?.toDate(),
+    breakAccum:
+        Duration(milliseconds: (data['breakAccumMs'] as num?)?.toInt() ?? 0),
+    breakSince: (data['breakSince'] as Timestamp?)?.toDate(),
+    breakType: data['breakType'] as String?,
+    breakReason: data['breakReason'] as String?,
+  );
+}
+
+Timestamp? _tsOrNull(DateTime? value) =>
+    value == null ? null : Timestamp.fromDate(value);
 
 StoredCounters _countersFrom(Map<String, dynamic>? data) {
   if (data == null) return const StoredCounters();
