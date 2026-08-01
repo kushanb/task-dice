@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../shell/account_info.dart';
 import '../state/app_state.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/app_toast.dart';
@@ -10,7 +11,10 @@ import '../widgets/reward_card.dart';
 import '../widgets/section_label.dart';
 
 class ProgressScreen extends StatelessWidget {
-  const ProgressScreen({super.key});
+  const ProgressScreen({super.key, this.account});
+
+  /// Null on a local-only build, where there is nothing to sign out of.
+  final AccountInfo? account;
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +62,55 @@ class ProgressScreen extends StatelessWidget {
                     .copyWith(fontSize: 13, color: AppColors.textTertiary)),
           ),
         ),
+        if (account case final account?) ...[
+          const SizedBox(height: AppSpacing.s24),
+          const SectionLabel('Account'),
+          const SizedBox(height: AppSpacing.s12),
+          _AccountRow(account: account),
+        ],
       ],
+    );
+  }
+}
+
+class _AccountRow extends StatelessWidget {
+  const _AccountRow({required this.account});
+
+  final AccountInfo account;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.s16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.borderHairline),
+        borderRadius: BorderRadius.circular(AppRadii.rCard),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              account.email ?? 'Signed in',
+              style: AppText.itemTitle,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s12),
+          PressScale(
+            onTap: account.onSignOut,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.s14, vertical: AppSpacing.s8),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppColors.borderStrong),
+                borderRadius: BorderRadius.circular(AppRadii.rButton),
+              ),
+              child: Text('Sign out', style: AppText.buttonSecondary),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

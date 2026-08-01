@@ -10,11 +10,20 @@ import '../state/app_state.dart';
 import '../widgets/app_tab_bar.dart';
 import '../widgets/capture_fab.dart';
 import '../widgets/capture_overlay.dart';
+import 'account_info.dart';
 
 /// Root scaffold: 5 tabs (Inbox is reached via the capture FAB / Today),
 /// capture FAB, and the tab bar.
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({super.key, this.state, this.account});
+
+  /// State to run against. When null the shell makes its own demo-seeded one,
+  /// which is the local-only path used by `flutter test` and by a build with no
+  /// Firebase config. When signed in, [AuthGate] passes the user's loaded state.
+  final AppState? state;
+
+  /// Drives the Account section on Progress. Null on a local-only build.
+  final AccountInfo? account;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -24,12 +33,16 @@ class _AppShellState extends State<AppShell> {
   static const _tabs = ['Today', 'Plan', 'Roll', 'Trends', 'Progress'];
   static const _focusIndex = 5;
 
-  final AppState _state = AppState();
+  late final AppState _state = widget.state ?? AppState();
+
+  /// Only dispose what this widget created — the injected one outlives it.
+  late final bool _ownsState = widget.state == null;
+
   int _index = 0;
 
   @override
   void dispose() {
-    _state.dispose();
+    if (_ownsState) _state.dispose();
     super.dispose();
   }
 
@@ -53,7 +66,7 @@ class _AppShellState extends State<AppShell> {
                 onStart: () => setState(() => _index = _focusIndex),
               ),
               const TrendsScreen(),
-              const ProgressScreen(),
+              ProgressScreen(account: widget.account),
               // Focus mode lives outside the tab row; reached by starting a task.
               FocusScreen(onDone: () => setState(() => _index = 0)),
             ],

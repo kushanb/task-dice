@@ -59,6 +59,108 @@ Two details in `vercel.json` are load-bearing:
   exist on disk, since Vercel matches real files first. It is what stops a
   refresh or a deep link from 404ing.
 
+## Firebase (auth + Firestore)
+
+Sign-in is Google-only, and a signed-in user's tasks, inbox, rewards and day
+counters live in Firestore under `users/{uid}`.
+
+The app runs **without** Firebase too. With no config it stays in memory with
+the demo dataset — that is what `flutter test` and a plain `flutter run` use, so
+you never need credentials just to work on the UI.
+
+### 1. Create the project
+
+1. <https://console.firebase.google.com> → **Add project**.
+2. **Build → Authentication → Get started → Google → Enable.** Set a support
+   email and save. No OAuth client ID is needed: the app uses Firebase's own
+   consent handler at `<authDomain>/__/auth/handler`.
+3. **Build → Firestore Database → Create database.** Pick a region — it cannot
+   be changed later. Start in production mode; step 3 below replaces the rules.
+4. **Project settings → Your apps → Web (`</>`)** → register an app. Copy the
+   `firebaseConfig` values it shows you.
+
+### 2. Give the app the config
+
+Six values, passed as `--dart-define`. **None of them are secrets** — a Firebase
+web config identifies the project, it does not grant access, and it ships inside
+the JS bundle no matter what you do. The rules in step 3 and the authorized
+domains in step 4 are what actually protect the data.
+
+| Env var | From `firebaseConfig` |
+| --- | --- |
+| `FIREBASE_API_KEY` | `apiKey` |
+| `FIREBASE_AUTH_DOMAIN` | `authDomain` |
+| `FIREBASE_PROJECT_ID` | `projectId` |
+| `FIREBASE_STORAGE_BUCKET` | `storageBucket` |
+| `FIREBASE_MESSAGING_SENDER_ID` | `messagingSenderId` |
+| `FIREBASE_APP_ID` | `appId` |
+
+**Locally** — copy the example file and fill it in. `.env` is gitignored;
+`.env.example` is the committed template.
+
+```sh
+cp .env.example .env
+```
+
+The file must be `KEY=value`. Flutter's `.env` parser rejects `KEY: value` with
+`Invalid property line`.
+
+`tool/build_web.dart` picks `.env` up on its own, so the web build needs no
+flags. `flutter run` does not, so pass it there:
+
+```sh
+dart run tool/build_web.dart                        # uses .env automatically
+flutter run -d chrome --dart-define-from-file=.env
+```
+
+**On Vercel** — add all six under **Project → Settings → Environment Variables**
+(Production, Preview and Development). `tool/vercel_build.sh` turns them into
+`--dart-define` flags and **fails the build if any are missing**, rather than
+shipping a build that silently does not persist anything. To deploy deliberately
+without Firebase, set `ALLOW_MISSING_FIREBASE=1`.
+
+### 3. Publish the security rules
+
+`firestore.rules` restricts every user to their own `users/{uid}` subtree and
+denies everything else. Without this, a production-mode database rejects all
+reads and writes and the app will load to an error screen.
+
+```sh
+firebase deploy --only firestore:rules
+```
+
+Or paste the file into **Firestore Database → Rules → Publish**.
+
+### 4. Authorize your domains
+
+**Authentication → Settings → Authorized domains** must list every origin the
+app is served from, or Google sign-in fails with `unauthorized-domain`:
+
+- `localhost` (already there by default)
+- your production domain, e.g. `taskdice.vercel.app`
+- any custom domain
+
+Vercel gives every preview deployment a **new** URL, and each one needs adding
+if you want sign-in to work there. Adding your `*.vercel.app` production domain
+does not cover previews — wildcards are not supported.
+
+### What is stored
+
+```
+users/{uid}                points, day counters, dayKey
+users/{uid}/tasks/{id}     title, tag, priority, estimate, status, actual
+users/{uid}/inbox/{id}     captured text, timestamp, mid-focus flag
+users/{uid}/rewards/{id}   title, progress, claimed
+```
+
+Writes are fire-and-forget against Firestore's local cache, so edits apply
+instantly and queue when offline. Daily figures are stamped with `dayKey`; open
+the app on a new day and they reset while the running `points` total carries
+over.
+
+Not yet persisted: the live focus session (a reload mid-task loses the running
+timer), and the Trends/Progress history, which is still the seeded demo data.
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.

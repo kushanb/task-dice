@@ -12,6 +12,47 @@ set -euo pipefail
 # Keep in sync with the revision in .metadata.
 FLUTTER_VERSION="3.41.6"
 
+# Firebase project settings come from Vercel environment variables and are
+# compiled in via --dart-define. They are identifiers rather than secrets (they
+# ship in the bundle regardless); firestore.rules is what protects the data.
+#
+# Checked before the SDK install so a missing variable fails in seconds rather
+# than after a multi-minute Flutter clone.
+FIREBASE_KEYS=(
+    FIREBASE_API_KEY
+    FIREBASE_AUTH_DOMAIN
+    FIREBASE_PROJECT_ID
+    FIREBASE_STORAGE_BUCKET
+    FIREBASE_MESSAGING_SENDER_ID
+    FIREBASE_APP_ID
+)
+
+DEFINES=()
+MISSING=()
+for key in "${FIREBASE_KEYS[@]}"; do
+    value="${!key:-}"
+    if [ -z "${value}" ]; then
+        MISSING+=("${key}")
+    else
+        DEFINES+=("--dart-define=${key}=${value}")
+    fi
+done
+
+if [ ${#MISSING[@]} -gt 0 ]; then
+    if [ -n "${ALLOW_MISSING_FIREBASE:-}" ]; then
+        echo "==> WARNING: building without Firebase. Missing: ${MISSING[*]}"
+        echo "    Sign-in will be skipped and data will not persist."
+    else
+        echo "ERROR: missing Firebase environment variables: ${MISSING[*]}" >&2
+        echo "" >&2
+        echo "Add them under Vercel -> Project -> Settings -> Environment Variables." >&2
+        echo "Values come from Firebase console -> Project settings -> Your apps -> Web app." >&2
+        echo "" >&2
+        echo "To deploy deliberately without Firebase, set ALLOW_MISSING_FIREBASE=1." >&2
+        exit 1
+    fi
+fi
+
 CACHE_DIR="${PWD}/.vercel/cache"
 FLUTTER_DIR="${CACHE_DIR}/flutter"
 VERSION_STAMP="${FLUTTER_DIR}/.taskdice-flutter-version"
@@ -48,6 +89,7 @@ flutter pub get
 
 # Not a bare `flutter build web`: this also stamps the service worker's precache
 # manifest and keeps CanvasKit local. See tool/build_web.dart.
-dart run tool/build_web.dart --release
+# The ${arr[@]+...} guard keeps `set -u` happy when the array is empty.
+dart run tool/build_web.dart --release ${DEFINES[@]+"${DEFINES[@]}"}
 
 echo "==> build/web ready"

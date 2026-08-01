@@ -1,0 +1,42 @@
+{
+    // Pressing Run/F5 does not pick up .env on its own — `flutter run` has no
+    // implicit config file — so the Firebase configuration is passed here.
+    // Without it the app starts in local-only mode and logs
+    // "running without Firebase — data stays in memory".
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "TaskDice (Firebase)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            // toolArgs, not args: "args" go to the running application, while
+            // "toolArgs" go to the `flutter run` command itself. --dart-define
+            // is a compile-time flag, so in "args" it is silently ignored and
+            // the app starts with no Firebase config.
+            "toolArgs": [
+                "--dart-define-from-file=.env"
+            ]
+        },
+        {
+            "name": "TaskDice (local, no Firebase)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart"
+        },
+        {
+            "name": "TaskDice (Firebase, profile)",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "profile",
+            "program": "lib/main.dart",
+            // toolArgs, not args: "args" go to the running application, while
+            // "toolArgs" go to the `flutter run` command itself. --dart-define
+            // is a compile-time flag, so in "args" it is silently ignored and
+            // the app starts with no Firebase config.
+            "toolArgs": [
+                "--dart-define-from-file=.env"
+            ]
+        }
+    ]
+}

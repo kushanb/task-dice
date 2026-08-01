@@ -1,3 +1,5 @@
+import 'id.dart';
+
 class Badge {
   const Badge(this.emoji, this.name, this.requirement, {this.unlocked = true});
 
@@ -14,7 +16,11 @@ class Reward {
     required this.fraction,
     this.reached = false,
     this.claimed = false,
-  });
+    String? id,
+  }) : id = id ?? newId();
+
+  /// Document ID once persisted. See [InboxItem.id].
+  final String id;
 
   final String title;
   String detail;

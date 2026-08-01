@@ -26,6 +26,11 @@ migrate_working_dir/
 # Vercel project linkage and build cache
 .vercel/
 
+# Local Firebase config for --dart-define-from-file (copy .env.example)
+.env
+.env.local
+!.env.example
+
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id

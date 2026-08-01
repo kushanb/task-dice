@@ -1,3 +1,5 @@
+import 'id.dart';
+
 enum Priority {
   low('Low'),
   med('Med'),
@@ -51,7 +53,16 @@ class Task {
 }
 
 class InboxItem {
-  InboxItem({required this.text, required this.capturedAt, this.midFocus = false});
+  InboxItem({
+    required this.text,
+    required this.capturedAt,
+    this.midFocus = false,
+    String? id,
+  }) : id = id ?? newId();
+
+  /// Document ID once persisted. Generated up front so the item can be deleted
+  /// or re-synced before the write lands.
+  final String id;
 
   final String text;
   final DateTime capturedAt;

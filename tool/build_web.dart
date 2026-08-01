@@ -45,12 +45,28 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
 
+  // Pick up a local .env automatically so `dart run tool/build_web.dart` needs
+  // no flags. On Vercel there is no .env — the Firebase settings arrive as real
+  // environment variables and vercel_build.sh passes them as --dart-define,
+  // which is why this is skipped when the caller already supplied defines.
+  final hasOwnDefines = args.any((a) => a.startsWith('--dart-define'));
+  final envFile = File('${root.path}/.env');
+  final useEnvFile = !hasOwnDefines && envFile.existsSync();
+  if (useEnvFile) {
+    stdout.writeln('Using .env for Firebase config.');
+  } else if (!hasOwnDefines) {
+    stdout.writeln(
+      'No .env found — building without Firebase (data will not persist).',
+    );
+  }
+
   // --no-web-resources-cdn keeps CanvasKit local. Without it the engine is
   // pulled from gstatic at runtime and the app cannot start offline.
   final buildArgs = <String>[
     'build',
     'web',
     if (!args.any((a) => a.contains('web-resources-cdn'))) '--no-web-resources-cdn',
+    if (useEnvFile) '--dart-define-from-file=.env',
     ...args,
   ];
 

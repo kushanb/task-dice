@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/widgets.dart';
 
+import '../data/task_store.dart';
 import '../logic/scoring.dart';
 import '../models/game.dart';
 import '../models/task.dart';
@@ -32,9 +33,19 @@ class CompletedInfo {
 ///   focus = elapsed − sessionBreak
 /// Breaks do NOT stop the task timer — the task keeps tracking.
 class AppState extends ChangeNotifier {
-  AppState({bool seedDemoData = true}) {
+  AppState({bool seedDemoData = true, TaskStore? store}) : _store = store {
     if (seedDemoData) _seedDemo();
   }
+
+  /// Where mutations are mirrored to, or null to stay purely in memory.
+  ///
+  /// Writes are fire-and-forget: Firestore's local cache applies them
+  /// immediately and queues the network round trip, so the UI never waits on
+  /// one and an offline edit is not lost. [lastWriteError] records the last
+  /// failure rather than throwing into a callback.
+  final TaskStore? _store;
+
+  Object? lastWriteError;
 
   final List<Task> tasks = [];
   final List<InboxItem> inbox = [];
@@ -185,6 +196,10 @@ class AppState extends ChangeNotifier {
     energyPromptVisible = false;
     _energyTimer?.cancel();
     _stopTicker();
+
+    _write((store) => store.saveTask(task));
+    _write((store) => store.saveCounters(_counters));
+
     notifyListeners();
   }
 
@@ -231,13 +246,15 @@ class AppState extends ChangeNotifier {
       {String tag = 'Inbox', int estMin = 25, Priority priority = Priority.med}) {
     final v = title.trim();
     if (v.isEmpty) return;
-    tasks.add(Task(
+    final task = Task(
       id: _nextId(),
       title: v,
       tag: tag,
       priority: priority,
       estMin: estMin,
-    ));
+    );
+    tasks.add(task);
+    _write((store) => store.saveTask(task));
     notifyListeners();
   }
 
@@ -257,6 +274,7 @@ class AppState extends ChangeNotifier {
       task.bumpedFrom = null; // manual choice overrides the carry-over bump
     }
     if (dueToday != null) task.dueToday = dueToday;
+    _write((store) => store.saveTask(task));
     notifyListeners();
   }
 
@@ -272,6 +290,7 @@ class AppState extends ChangeNotifier {
       _stopTicker();
     }
     tasks.remove(task);
+    _write((store) => store.deleteTask(task));
     notifyListeners();
   }
 
@@ -279,36 +298,94 @@ class AppState extends ChangeNotifier {
 
   void claimReward(Reward reward) {
     reward.claimed = true;
+    _write((store) => store.saveReward(reward));
     notifyListeners();
   }
 
   void addReward(String title, int targetPoints) {
     final v = title.trim();
     if (v.isEmpty) return;
-    game.rewards.add(Reward(
+    final reward = Reward(
       title: v,
       detail: '0 / $targetPoints pts',
       fraction: 0,
-    ));
+    );
+    game.rewards.add(reward);
+    _write((store) => store.saveReward(reward));
     notifyListeners();
   }
 
   void addToInbox(String text) {
     final v = text.trim();
     if (v.isEmpty) return;
-    inbox.insert(
-        0, InboxItem(text: v, capturedAt: DateTime.now(), midFocus: isTracking));
+    final item =
+        InboxItem(text: v, capturedAt: DateTime.now(), midFocus: isTracking);
+    inbox.insert(0, item);
+    _write((store) => store.saveInboxItem(item));
     notifyListeners();
   }
 
   void removeFromInbox(InboxItem item) {
     inbox.remove(item);
+    _write((store) => store.deleteInboxItem(item));
     notifyListeners();
   }
 
   void promoteToToday(InboxItem item) {
-    inbox.remove(item);
+    // Goes through removeFromInbox so the item is deleted from the store too,
+    // not just from the list.
+    removeFromInbox(item);
     addTask(item.text, estMin: 15);
+  }
+
+  // ---- Persistence ----
+
+  /// Replaces in-memory state with what came back from the store.
+  ///
+  /// Rewards are only taken when the account has some, so a new user keeps the
+  /// designed placeholder set rather than landing on an empty Progress screen —
+  /// see [GameData.demo].
+  void applyStored(StoredData data) {
+    tasks
+      ..clear()
+      ..addAll(data.tasks);
+    inbox
+      ..clear()
+      ..addAll(data.inbox);
+
+    if (data.rewards.isNotEmpty) {
+      game.rewards
+        ..clear()
+        ..addAll(data.rewards);
+    }
+
+    points = data.counters.points;
+    pointsEarnedToday = data.counters.pointsEarnedToday;
+    dayFocusBaseMin = data.counters.dayFocusBaseMin;
+    dayBreakBaseMin = data.counters.dayBreakBaseMin;
+    usedBreakBudgetBaseMin = data.counters.usedBreakBudgetBaseMin;
+    breakBudgetMin = data.counters.breakBudgetMin;
+
+    notifyListeners();
+  }
+
+  StoredCounters get _counters => StoredCounters(
+        points: points,
+        pointsEarnedToday: pointsEarnedToday,
+        dayFocusBaseMin: dayFocusBaseMin,
+        dayBreakBaseMin: dayBreakBaseMin,
+        usedBreakBudgetBaseMin: usedBreakBudgetBaseMin,
+        breakBudgetMin: breakBudgetMin,
+      );
+
+  /// Runs a write without blocking the caller, recording any failure.
+  void _write(Future<void> Function(TaskStore store) action) {
+    final store = _store;
+    if (store == null) return;
+    action(store).catchError((Object error) {
+      lastWriteError = error;
+      debugPrint('TaskDice: write failed — $error');
+    });
   }
 
   // ---- Internals ----

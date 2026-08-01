@@ -1,0 +1,33 @@
+rules_version = '2';
+
+// TaskDice keeps everything a user owns under users/{uid}, so authorisation is
+// a single prefix check: you may touch your own subtree and nothing else.
+//
+// Deploy with:  firebase deploy --only firestore:rules
+// (or paste into Firebase console -> Firestore Database -> Rules)
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Declared inside the match block: rules functions are scoped to the block
+    // they sit in and its descendants. At the top level of the file, outside
+    // `service`, this is a syntax error and the ruleset will not compile.
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      // tasks/, inbox/, rewards/ — same owner, any depth.
+      match /{document=**} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // Anything outside a user's own subtree is denied. Firestore denies by
+    // default, but stating it makes the intent explicit for the next reader.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
