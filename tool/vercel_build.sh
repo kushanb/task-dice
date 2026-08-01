@@ -66,15 +66,60 @@ if [ -n "${VERCEL:-}" ]; then
     export PUB_CACHE="${CACHE_DIR}/pub"
 fi
 
-if [ -x "${FLUTTER_DIR}/bin/flutter" ] &&
-    [ "$(cat "${VERSION_STAMP}" 2>/dev/null || true)" = "${FLUTTER_VERSION}" ]; then
+# The official prebuilt archive, not a git clone.
+#
+# `git clone --depth 1` leaves the SDK unable to work out which engine it needs:
+# bin/internal/update_engine_version.sh derives that from repository history a
+# shallow clone does not have, so it writes an EMPTY bin/internal/engine.version.
+# Flutter then hashes the empty file — e69de29bb2d1d6434b8b29ae775ad8c2e48c5391,
+# the well-known SHA of empty content — asks the CDN for an engine at that
+# revision, gets a 404 body, and fails unzipping it as the Dart SDK. The
+# prebuilt archive ships engine.version and a populated bin/cache, so none of
+# that resolution has to happen here.
+FLUTTER_URL="https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
+FLUTTER_ARCHIVE="${CACHE_DIR}/flutter-${FLUTTER_VERSION}.tar.xz"
+
+# Whether a restored cache is actually usable, rather than merely present.
+#
+# Vercel's build cache has a size ceiling the Flutter SDK sits close to, so a
+# restore can come back truncated: bin/flutter exists and the version stamp
+# matches while the files the build needs are missing or empty. Checking only
+# those two — as this script used to — turns one bad cache into every
+# subsequent build failing. Each check below is a file the toolchain cannot run
+# without, and -s additionally requires it to be non-empty.
+flutter_cache_is_healthy() {
+    [ -x "${FLUTTER_DIR}/bin/flutter" ] || return 1
+    [ -s "${FLUTTER_DIR}/bin/internal/engine.version" ] || return 1
+    [ -x "${FLUTTER_DIR}/bin/cache/dart-sdk/bin/dart" ] || return 1
+    [ "$(cat "${VERSION_STAMP}" 2>/dev/null || true)" = "${FLUTTER_VERSION}" ] || return 1
+}
+
+if flutter_cache_is_healthy; then
     echo "==> Reusing cached Flutter ${FLUTTER_VERSION}"
 else
-    echo "==> Installing Flutter ${FLUTTER_VERSION}"
-    rm -rf "${FLUTTER_DIR}"
+    if [ -d "${FLUTTER_DIR}" ]; then
+        echo "==> Cached Flutter is incomplete — reinstalling"
+    else
+        echo "==> Installing Flutter ${FLUTTER_VERSION}"
+    fi
+    rm -rf "${FLUTTER_DIR}" "${FLUTTER_ARCHIVE}"
     mkdir -p "${CACHE_DIR}"
-    git clone --depth 1 --branch "${FLUTTER_VERSION}" \
-        https://github.com/flutter/flutter.git "${FLUTTER_DIR}"
+
+    # --fail matters: without it curl happily writes an error page to disk and
+    # the failure surfaces later as a corrupt archive, which is how the original
+    # breakage presented.
+    curl --fail --location --retry 3 --retry-delay 2 --retry-connrefused \
+        --output "${FLUTTER_ARCHIVE}" "${FLUTTER_URL}"
+    tar -xJf "${FLUTTER_ARCHIVE}" -C "${CACHE_DIR}"
+    rm -f "${FLUTTER_ARCHIVE}"
+
+    # Stamp only once the result is known good, so a half-written install is
+    # never mistaken for a warm cache on the next build.
+    if ! flutter_cache_is_healthy; then
+        echo "ERROR: Flutter ${FLUTTER_VERSION} did not install cleanly." >&2
+        echo "       Expected an SDK at ${FLUTTER_DIR} with a populated bin/cache." >&2
+        exit 1
+    fi
     echo "${FLUTTER_VERSION}" >"${VERSION_STAMP}"
 fi
 
